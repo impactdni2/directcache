@@ -59,6 +59,11 @@ func (c *Cache) Set(key, val []byte) bool {
 		copy(_val, val)
 	})
 }
+func (c *Cache) SetHash(keyHash uint64, key, val []byte) bool {
+	return c.buckets[keyHash%BucketCount].Set(key, keyHash, len(val), func(_val []byte) {
+		copy(_val, val)
+	})
+}
 
 // Del deletes the entry matching the given key from the cache.
 // false is returned if no entry matched.
@@ -86,6 +91,9 @@ func (c *Cache) Get(key []byte) (val []byte, ok bool) {
 // It's safe to modify contents of key after Has returns.
 func (c *Cache) Has(key []byte) bool {
 	keyHash := xxhash.Sum64(key)
+	return c.buckets[keyHash%BucketCount].Get(key, keyHash, nil, false)
+}
+func (c *Cache) HasHash(keyHash uint64, key []byte) bool {
 	return c.buckets[keyHash%BucketCount].Get(key, keyHash, nil, false)
 }
 
