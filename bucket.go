@@ -3,7 +3,6 @@ package directcache
 import (
 	"bytes"
 	"errors"
-	"sync"
 
 	"github.com/cespare/xxhash/v2"
 )
@@ -13,32 +12,24 @@ type bucket struct {
 	m           vmap                   // maps key hash to offset
 	q           fifo                   // the queue buffer stores entries
 	shouldEvict func(entry Entry) bool // the custom evention policy
-	lock        sync.RWMutex
 }
 
 // Reset resets the bucket with new capacity and new eviction method.
 // If shouldEvict is nil, the default LRU policy is used.
 // It drops all entries.
 func (b *bucket) Reset(capacity int) {
-	b.lock.Lock()
 	b.m.Reset(capacity - 1)
 	b.q.Reset(capacity)
-	b.lock.Unlock()
 }
 
 // SetEvictionPolicy customizes the cache eviction policy.
 func (b *bucket) SetEvictionPolicy(shouldEvict func(entry Entry) bool) {
-	b.lock.Lock()
 	b.shouldEvict = shouldEvict
-	b.lock.Unlock()
 }
 
 // Set set val for key.
 // false returned and nothing changed if the new entry size exceeds the capacity of this bucket.
 func (b *bucket) Set(key []byte, keyHash uint64, valLen int, fn func(val []byte)) bool {
-	b.lock.Lock()
-	defer b.lock.Unlock()
-
 	if offset, found := b.m.Get(keyHash); found {
 		ent := b.entryAt(offset)
 		if spare := ent.BodySize() - len(key) - valLen; spare >= 0 { // in-place update
@@ -60,8 +51,6 @@ func (b *bucket) Set(key []byte, keyHash uint64, valLen int, fn func(val []byte)
 // Del deletes the key.
 // false is returned if key does not exist.
 func (b *bucket) Del(key []byte, keyHash uint64) bool {
-	b.lock.Lock()
-	defer b.lock.Unlock()
 	if offset, found := b.m.Get(keyHash); found {
 		if ent := b.entryAt(offset); bytes.Equal(ent.Key(), key) {
 			b.m.Del(keyHash)
@@ -76,8 +65,6 @@ func (b *bucket) Del(key []byte, keyHash uint64) bool {
 // false is returned if the key not found.
 // If peek is true, the entry will not be marked as recently-used.
 func (b *bucket) Get(key []byte, keyHash uint64, fn func(val []byte), peek bool) bool {
-	b.lock.RLock()
-	defer b.lock.RUnlock()
 	if offset, found := b.m.Get(keyHash); found {
 		if ent := b.entryAt(offset); bytes.Equal(ent.Key(), key) {
 			if !peek {
@@ -94,9 +81,6 @@ func (b *bucket) Get(key []byte, keyHash uint64, fn func(val []byte), peek bool)
 
 // Dump dumps entries.
 func (b *bucket) Dump(f func(Entry) bool) bool {
-	b.lock.RLock()
-	defer b.lock.RUnlock()
-
 	size := b.q.Size()
 	offset := b.q.Front()
 	for size > 0 {
